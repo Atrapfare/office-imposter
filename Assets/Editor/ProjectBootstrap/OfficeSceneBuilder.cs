@@ -32,6 +32,7 @@ namespace ProjectBootstrap
             public Material Floor, Carpet, Wall, Partition, DeskTop, DeskBody, Chair, Screen;
             public Material Cabinet, Plant, Skin, Shirt, Trousers, Suit, SuitDark, Accent;
             public Material Trim, Glass, LightPanel, Metal, Paper, Rubber, Poster, CeilingTile;
+            public Material ShirtB, ShirtC, ShirtD;
         }
 
         [MenuItem("Office Imposter/Rebuild Office Scene")]
@@ -69,6 +70,7 @@ namespace ProjectBootstrap
             GameObject playerPrefab = CreatePlayerPrefab(palette);
             CreateNetworkManager(playerPrefab);
             CreateBoss(palette, waypoints);
+            CreateCoworkers(palette);
             CreateSystems();
 
             EditorSceneManager.MarkSceneDirty(scene);
@@ -159,6 +161,9 @@ namespace ProjectBootstrap
             Plant = Mat("Plant", new Color(0.29f, 0.53f, 0.31f)),
             Skin = Mat("Skin", new Color(0.93f, 0.76f, 0.62f)),
             Shirt = Mat("Shirt", new Color(0.42f, 0.62f, 0.85f)),
+            ShirtB = Mat("ShirtB", new Color(0.78f, 0.52f, 0.36f)),
+            ShirtC = Mat("ShirtC", new Color(0.46f, 0.66f, 0.50f)),
+            ShirtD = Mat("ShirtD", new Color(0.66f, 0.46f, 0.66f)),
             Trousers = Mat("Trousers", new Color(0.26f, 0.30f, 0.38f)),
             Suit = Mat("Suit", new Color(0.21f, 0.20f, 0.26f)),
             SuitDark = Mat("SuitDark", new Color(0.14f, 0.13f, 0.18f)),
@@ -369,8 +374,8 @@ namespace ProjectBootstrap
             for (int i = 0; i < 3; i++)
             {
                 float x = 13.6f + i * 1.4f;
-                CreateSimpleChair(room, new Vector3(x, 0f, 5.9f), 0f, p);
-                CreateSimpleChair(room, new Vector3(x, 0f, 9.1f), 180f, p);
+                CreateSimpleChair(room, new Vector3(x, 0f, 5.9f), 0f, p).gameObject.AddComponent<MeetingSeat>();
+                CreateSimpleChair(room, new Vector3(x, 0f, 9.1f), 180f, p).gameObject.AddComponent<MeetingSeat>();
             }
 
             Box("Whiteboard", room, new Vector3(15f, 1.7f, 14.7f), new Vector3(4.5f, 1.4f, 0.1f), p.Wall, false);
@@ -396,7 +401,7 @@ namespace ProjectBootstrap
             Box("Vending", room, new Vector3(10.5f, 1f, -14f), new Vector3(1.1f, 2f, 0.6f), p.Accent);
         }
 
-        static void CreateSimpleChair(Transform parent, Vector3 position, float facingY, Palette p)
+        static Transform CreateSimpleChair(Transform parent, Vector3 position, float facingY, Palette p)
         {
             var chair = new GameObject("Chair").transform;
             chair.SetParent(parent, false);
@@ -406,6 +411,7 @@ namespace ProjectBootstrap
             Box("Seat", chair, new Vector3(0f, 0.45f, 0f), new Vector3(0.48f, 0.08f, 0.48f), p.Chair, false);
             Box("Back", chair, new Vector3(0f, 0.72f, 0.21f), new Vector3(0.48f, 0.5f, 0.08f), p.Chair, false);
             Box("Post", chair, new Vector3(0f, 0.22f, 0f), new Vector3(0.08f, 0.44f, 0.08f), p.DeskBody, false);
+            return chair;
         }
 
         static void CreateSpawnPoints(Transform parent)
@@ -505,6 +511,7 @@ namespace ProjectBootstrap
             root.AddComponent<NetworkObject>();
             root.AddComponent<ClientNetworkTransform>();
             root.AddComponent<PlayerStatus>();
+            root.AddComponent<WorkTaskRunner>();
             root.AddComponent<PlayerController>();
 
             BuildCharacterVisual(root.transform, p.Shirt, p.Skin, p.Trousers, p.Accent);
@@ -553,10 +560,56 @@ namespace ProjectBootstrap
             boss.AddComponent<NetworkObject>();
             boss.AddComponent<NetworkTransform>();
 
+            var vision = boss.AddComponent<VisionCone>();
+            vision.Configure(13f, 80f);
+
             var ai = boss.AddComponent<BossAI>();
             ai.Configure(waypoints);
 
             BuildCharacterVisual(boss.transform, p.Suit, p.Skin, p.SuitDark, p.Accent);
+        }
+
+        static void CreateCoworkers(Palette p)
+        {
+            var root = new GameObject("Coworkers").transform;
+
+            var spots = new[]
+            {
+                new Vector3(-14f, 0f, 4f), new Vector3(-8f, 0f, -4f), new Vector3(-3f, 0f, 5f),
+                new Vector3(1f, 0f, -3f), new Vector3(-17f, 0f, -9f),
+            };
+            var shirts = new[] { p.ShirtB, p.ShirtC, p.ShirtD, p.Shirt, p.ShirtB };
+
+            for (int i = 0; i < spots.Length; i++)
+            {
+                var go = new GameObject($"Coworker_{i + 1}");
+                go.transform.SetParent(root, false);
+                go.transform.localPosition = spots[i];
+
+                var collider = go.AddComponent<CapsuleCollider>();
+                collider.height = 1.8f;
+                collider.radius = 0.32f;
+                collider.center = new Vector3(0f, 0.9f, 0f);
+
+                var agent = go.AddComponent<NavMeshAgent>();
+                agent.radius = 0.35f;
+                agent.height = 1.8f;
+                agent.speed = 1.7f;
+                agent.angularSpeed = 220f;
+                agent.acceleration = 7f;
+                agent.stoppingDistance = 0.4f;
+                agent.avoidancePriority = 55 + i;
+                agent.enabled = false;
+
+                go.AddComponent<NetworkObject>();
+                go.AddComponent<NetworkTransform>();
+
+                var vision = go.AddComponent<VisionCone>();
+                vision.Configure(9f, 95f);   // shorter reach than the boss, wider glance
+
+                go.AddComponent<CoworkerAI>();
+                BuildCharacterVisual(go.transform, shirts[i], p.Skin, p.Trousers, null);
+            }
         }
 
         static void CreateSystems()
@@ -564,6 +617,8 @@ namespace ProjectBootstrap
             var go = new GameObject("GameSystems");
             go.AddComponent<NetworkObject>();
             go.AddComponent<GameManager>();
+            go.AddComponent<MeetingSystem>();
+            go.AddComponent<AudioDirector>();
             go.AddComponent<NetworkHUD>();
             go.AddComponent<AutoStart>();
         }

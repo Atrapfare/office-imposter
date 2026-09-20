@@ -5,96 +5,149 @@ using UnityEngine.AI;
 namespace OfficeImposter
 {
     [RequireComponent(typeof(NavMeshAgent))]
+    [RequireComponent(typeof(VisionCone))]
     public class BossAI : NetworkBehaviour
     {
-        [SerializeField] float viewDistance = 13f;
-        [SerializeField] float viewAngle = 80f;
+        public enum State { Patrolling, Investigating, AtMeeting }
+
         [SerializeField] float suspicionPerSecond = 11f;
         [SerializeField] float waypointPause = 2.5f;
-        [SerializeField] float eyeHeight = 1.6f;
+        [SerializeField] float investigateDuration = 7f;
         [SerializeField] Transform[] waypoints;
 
+        public static BossAI Instance { get; private set; }
+
+        readonly NetworkVariable<int> _state = new NetworkVariable<int>(
+            0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
         NavMeshAgent _agent;
+        VisionCone _vision;
         int _waypointIndex;
         float _pauseTimer;
+        float _stateTimer;
+        Vector3 _meetingSpot;
+        bool _hasMeetingSpot;
 
-        public bool IsWatchingLocalPlayer { get; private set; }
+        public State CurrentState => (State)_state.Value;
 
         public void Configure(Transform[] patrolPoints) => waypoints = patrolPoints;
 
-        void Awake() => _agent = GetComponent<NavMeshAgent>();
+        void Awake()
+        {
+            _agent = GetComponent<NavMeshAgent>();
+            _vision = GetComponent<VisionCone>();
+        }
 
         public override void OnNetworkSpawn()
         {
-            // Only the server steers the boss; clients just receive its transform.
+            Instance = this;
             _agent.enabled = IsServer;
             if (IsServer) MoveToNextWaypoint();
         }
 
+        public override void OnNetworkDespawn()
+        {
+            if (Instance == this) Instance = null;
+        }
+
+        // Called by coworkers who have had enough of watching someone do nothing.
+        public void Investigate(Vector3 position)
+        {
+            if (!IsServer || CurrentState == State.AtMeeting) return;
+
+            _state.Value = (int)State.Investigating;
+            _stateTimer = investigateDuration;
+            SetDestination(position);
+        }
+
+        public void GoToMeeting(Vector3 position)
+        {
+            if (!IsServer) return;
+
+            _state.Value = (int)State.AtMeeting;
+            _meetingSpot = position;
+            _hasMeetingSpot = true;
+            SetDestination(position);
+        }
+
+        public void EndMeeting()
+        {
+            if (!IsServer) return;
+
+            _hasMeetingSpot = false;
+            _state.Value = (int)State.Patrolling;
+            MoveToNextWaypoint();
+        }
+
         void Update()
         {
-            IsWatchingLocalPlayer = false;
-            if (!IsServer || waypoints == null || waypoints.Length == 0) return;
+            if (!IsServer) return;
 
-            Patrol();
+            switch (CurrentState)
+            {
+                case State.Patrolling:
+                    Patrol();
+                    break;
+                case State.Investigating:
+                    _stateTimer -= Time.deltaTime;
+                    if (_stateTimer <= 0f)
+                    {
+                        _state.Value = (int)State.Patrolling;
+                        MoveToNextWaypoint();
+                    }
+                    break;
+                case State.AtMeeting:
+                    if (_hasMeetingSpot && ArrivedAtDestination()) transform.rotation = Quaternion.Slerp(
+                        transform.rotation, Quaternion.LookRotation(Vector3.left), 2f * Time.deltaTime);
+                    break;
+            }
+
             ScanForSlackers();
         }
 
         void Patrol()
         {
-            if (!_agent.enabled || _agent.pathPending) return;
+            if (waypoints == null || waypoints.Length == 0) return;
+            if (!ArrivedAtDestination()) return;
 
-            if (_agent.remainingDistance <= _agent.stoppingDistance + 0.2f)
-            {
-                _pauseTimer += Time.deltaTime;
-                if (_pauseTimer >= waypointPause)
-                {
-                    _pauseTimer = 0f;
-                    _waypointIndex = (_waypointIndex + 1) % waypoints.Length;
-                    MoveToNextWaypoint();
-                }
-            }
+            _pauseTimer += Time.deltaTime;
+            if (_pauseTimer < waypointPause) return;
+
+            _pauseTimer = 0f;
+            _waypointIndex = (_waypointIndex + 1) % waypoints.Length;
+            MoveToNextWaypoint();
+        }
+
+        bool ArrivedAtDestination()
+        {
+            if (!_agent.enabled || _agent.pathPending) return false;
+            return _agent.remainingDistance <= _agent.stoppingDistance + 0.25f;
         }
 
         void MoveToNextWaypoint()
         {
             if (waypoints == null || waypoints.Length == 0) return;
             Transform target = waypoints[_waypointIndex];
-            if (target != null && _agent.enabled && _agent.isOnNavMesh) _agent.SetDestination(target.position);
+            if (target != null) SetDestination(target.position);
+        }
+
+        void SetDestination(Vector3 position)
+        {
+            if (!_agent.enabled || !_agent.isOnNavMesh) return;
+            if (NavMesh.SamplePosition(position, out NavMeshHit hit, 3f, NavMesh.AllAreas)) _agent.SetDestination(hit.position);
         }
 
         void ScanForSlackers()
         {
-            Vector3 eye = transform.position + Vector3.up * eyeHeight;
-
             foreach (var player in PlayerStatus.All)
             {
-                if (player == null || player.IsCaught || player.IsWorking) continue;
-                if (!CanSee(eye, player, out _)) continue;
+                if (player == null || player.IsCaught) continue;
+                if (player.IsExcusedFromWork) continue;
+                if (!_vision.CanSee(player.transform)) continue;
 
                 player.AddSuspicion(suspicionPerSecond * Time.deltaTime);
+                player.MarkSeenByBoss();
             }
-        }
-
-        bool CanSee(Vector3 eye, PlayerStatus player, out float distance)
-        {
-            Vector3 chest = player.transform.position + Vector3.up * 1.2f;
-            Vector3 offset = chest - eye;
-            distance = offset.magnitude;
-
-            if (distance > viewDistance) return false;
-            if (Vector3.Angle(transform.forward, offset.normalized) > viewAngle * 0.5f) return false;
-
-            // Anything solid between the boss and the player breaks line of sight.
-            RaycastHit[] hits = Physics.RaycastAll(eye, offset / distance, distance, ~0, QueryTriggerInteraction.Ignore);
-            foreach (var hit in hits)
-            {
-                if (hit.collider.transform.IsChildOf(player.transform)) continue;
-                if (hit.collider.transform.IsChildOf(transform)) continue;
-                return false;
-            }
-
-            return true;
         }
     }
 }

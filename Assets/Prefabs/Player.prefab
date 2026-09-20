@@ -13,6 +13,7 @@ GameObject:
   - component: {fileID: 5555185026974224548}
   - component: {fileID: 590130295799609868}
   - component: {fileID: 7956479473022595509}
+  - component: {fileID: 7493359729234262461}
   - component: {fileID: 6921416640302341460}
   m_Layer: 0
   m_Name: Player
@@ -148,8 +149,24 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::OfficeImposter.PlayerStatus
   ShowTopMostFoldoutHeaderGroup: 1
-  workRecoveryPerSecond: 16
+  workRecoveryPerSecond: 5
   slackDriftPerSecond: 1.2
+  seenMemorySeconds: 0.6
+--- !u!114 &7493359729234262461
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1030628752975685346}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 86884432dd05e674b82d1b0de031aa2c, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::OfficeImposter.WorkTaskRunner
+  ShowTopMostFoldoutHeaderGroup: 1
+  sequenceLength: 5
+  mistakePenalty: 4
 --- !u!114 &6921416640302341460
 MonoBehaviour:
   m_ObjectHideFlags: 0

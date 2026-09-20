@@ -46,6 +46,36 @@ namespace ProjectBootstrap
                 }
             }
 
+            var coworkers = Object.FindObjectsByType<CoworkerAI>(FindObjectsSortMode.None);
+            problems += Check(coworkers.Length == 5, $"5 coworkers (found {coworkers.Length})");
+            foreach (var coworker in coworkers)
+            {
+                if (coworker.GetComponent<VisionCone>() == null)
+                {
+                    Debug.LogError($"[Verify] FAIL coworker without VisionCone: {coworker.name}");
+                    problems++;
+                }
+                if (!NavMesh.SamplePosition(coworker.transform.position, out _, 2f, NavMesh.AllAreas))
+                {
+                    Debug.LogError($"[Verify] FAIL coworker off NavMesh: {coworker.name}");
+                    problems++;
+                }
+            }
+
+            var seats = Object.FindObjectsByType<MeetingSeat>(FindObjectsSortMode.None);
+            problems += Check(seats.Length == 6, $"6 meeting seats (found {seats.Length})");
+            foreach (var seat in seats)
+            {
+                if (!MeetingSystem.RoomBounds.Contains(seat.transform.position))
+                {
+                    Debug.LogError($"[Verify] FAIL meeting seat outside room bounds: {seat.name}");
+                    problems++;
+                }
+            }
+
+            problems += Check(Object.FindFirstObjectByType<MeetingSystem>() != null, "MeetingSystem present");
+            problems += Check(Object.FindFirstObjectByType<AudioDirector>() != null, "AudioDirector present");
+            problems += Check(Object.FindFirstObjectByType<BossAI>()?.GetComponent<VisionCone>() != null, "Boss has VisionCone");
             problems += Check(Object.FindFirstObjectByType<GameManager>() != null, "GameManager present");
             problems += Check(Object.FindFirstObjectByType<NetworkHUD>() != null, "NetworkHUD present");
             problems += Check(Object.FindFirstObjectByType<ThirdPersonCamera>() != null, "Camera rig present");
@@ -62,6 +92,7 @@ namespace ProjectBootstrap
                 problems += Check(prefab.GetComponent<PlayerController>() != null, "Player has PlayerController");
                 problems += Check(prefab.GetComponent<PlayerStatus>() != null, "Player has PlayerStatus");
                 problems += Check(prefab.GetComponent<ClientNetworkTransform>() != null, "Player has ClientNetworkTransform");
+                problems += Check(prefab.GetComponent<WorkTaskRunner>() != null, "Player has WorkTaskRunner");
             }
 
             Debug.Log($"[Verify] DONE problems={problems}");

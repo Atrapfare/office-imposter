@@ -6,6 +6,7 @@ namespace OfficeImposter
 {
     [RequireComponent(typeof(CharacterController))]
     [RequireComponent(typeof(PlayerStatus))]
+    [RequireComponent(typeof(WorkTaskRunner))]
     public class PlayerController : NetworkBehaviour
     {
         [SerializeField] float walkSpeed = 3.4f;
@@ -18,17 +19,20 @@ namespace OfficeImposter
 
         CharacterController _controller;
         PlayerStatus _status;
+        WorkTaskRunner _task;
         ThirdPersonCamera _camera;
         float _fallVelocity;
-        bool _workInputHeld;
+        float _stepDistance;
 
         public WorkStation NearbyStation { get; private set; }
         public bool IsSprinting { get; private set; }
+        public WorkTaskRunner Task => _task;
 
         void Awake()
         {
             _controller = GetComponent<CharacterController>();
             _status = GetComponent<PlayerStatus>();
+            _task = GetComponent<WorkTaskRunner>();
         }
 
         public override void OnNetworkSpawn()
@@ -66,8 +70,8 @@ namespace OfficeImposter
         {
             if (!IsOwner) return;
 
-            var keyboard = Keyboard.current;
-            if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame) CursorLock.Toggle();
+            // The HUD owns Escape: it opens the pause menu and frees the cursor.
+            Keyboard keyboard = NetworkHUD.IsPaused ? null : Keyboard.current;
 
             UpdateInteraction(keyboard);
             UpdateMovement(keyboard);
@@ -76,17 +80,34 @@ namespace OfficeImposter
         void UpdateInteraction(Keyboard keyboard)
         {
             NearbyStation = WorkStation.FindNearest(transform.position, interactRange);
+            if (keyboard == null) return;
 
-            bool wantsToWork = NearbyStation != null
-                               && !_status.IsCaught
-                               && keyboard != null
-                               && keyboard.eKey.isPressed;
+            if (TryAnswerMeetingPrompt(keyboard)) return;
 
-            if (wantsToWork != _workInputHeld)
+            if (_task.IsActive)
             {
-                _workInputHeld = wantsToWork;
-                _status.SetWorkingServerRpc(wantsToWork);
+                bool lostDesk = NearbyStation == null || _status.IsCaught;
+                if (lostDesk || keyboard.eKey.wasPressedThisFrame) _task.Cancel();
+                return;
             }
+
+            if (NearbyStation != null && !_status.IsCaught && keyboard.eKey.wasPressedThisFrame) _task.Begin();
+        }
+
+        bool TryAnswerMeetingPrompt(Keyboard keyboard)
+        {
+            var meeting = MeetingSystem.Instance;
+            if (meeting == null || meeting.CurrentPrompt == MeetingSystem.PromptAction.None) return false;
+
+            int action = 0;
+            if (keyboard.spaceKey.wasPressedThisFrame) action = (int)MeetingSystem.PromptAction.Nod;
+            else if (keyboard.eKey.wasPressedThisFrame) action = (int)MeetingSystem.PromptAction.Agree;
+            else if (keyboard.fKey.wasPressedThisFrame) action = (int)MeetingSystem.PromptAction.TakeNotes;
+
+            if (action == 0) return false;
+
+            meeting.RespondServerRpc(action);
+            return true;
         }
 
         void UpdateMovement(Keyboard keyboard)
@@ -94,7 +115,8 @@ namespace OfficeImposter
             Vector2 input = Vector2.zero;
             IsSprinting = false;
 
-            if (keyboard != null && !_status.IsWorking && !_status.IsCaught)
+            bool canMove = keyboard != null && !_status.IsWorking && !_status.IsCaught;
+            if (canMove)
             {
                 if (keyboard.wKey.isPressed) input.y += 1f;
                 if (keyboard.sKey.isPressed) input.y -= 1f;
@@ -126,6 +148,16 @@ namespace OfficeImposter
             float speed = IsSprinting ? sprintSpeed : walkSpeed;
             Vector3 velocity = move * speed + Vector3.up * _fallVelocity;
             _controller.Move(velocity * Time.deltaTime);
+
+            if (move.sqrMagnitude > 0.01f && _controller.isGrounded)
+            {
+                _stepDistance += speed * Time.deltaTime;
+                if (_stepDistance >= 2.1f)
+                {
+                    _stepDistance = 0f;
+                    AudioDirector.Footstep();
+                }
+            }
         }
     }
 }

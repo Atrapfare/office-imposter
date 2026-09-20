@@ -7,7 +7,7 @@ namespace OfficeImposter
     {
         [SerializeField] float distance = 4.6f;
         [SerializeField] float focusHeight = 1.5f;
-        [SerializeField] float sensitivity = 0.12f;
+        public static float Sensitivity = 0.12f;
         [SerializeField] float minPitch = -20f;
         [SerializeField] float maxPitch = 42f;
         // Above the ceiling the room's single-sided ceiling is culled away and the
@@ -30,11 +30,11 @@ namespace OfficeImposter
         {
             if (_target == null) return;
 
-            if (CursorLock.IsLocked && Mouse.current != null)
+            if (CursorLock.IsLocked && !NetworkHUD.IsPaused && Mouse.current != null)
             {
                 Vector2 delta = Mouse.current.delta.ReadValue();
-                _yaw += delta.x * sensitivity;
-                _pitch = Mathf.Clamp(_pitch - delta.y * sensitivity, minPitch, maxPitch);
+                _yaw += delta.x * Sensitivity;
+                _pitch = Mathf.Clamp(_pitch - delta.y * Sensitivity, minPitch, maxPitch);
             }
 
             Quaternion rotation = Quaternion.Euler(_pitch, _yaw, 0f);

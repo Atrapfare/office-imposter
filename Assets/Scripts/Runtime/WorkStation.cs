@@ -10,13 +10,23 @@ namespace OfficeImposter
         [SerializeField] string label = "Schreibtisch";
         [SerializeField] Transform standAnchor;
 
+        CoworkerAI _occupant;
+
         public string Label => label;
+        public bool IsOccupied => _occupant != null;
         public Vector3 StandPosition => standAnchor != null ? standAnchor.position : transform.position;
 
         public void Configure(string newLabel, Transform anchor)
         {
             label = newLabel;
             standAnchor = anchor;
+        }
+
+        public void Claim(CoworkerAI coworker) => _occupant = coworker;
+
+        public void Release(CoworkerAI coworker)
+        {
+            if (_occupant == coworker) _occupant = null;
         }
 
         void OnEnable() => All.Add(this);
@@ -26,9 +36,11 @@ namespace OfficeImposter
         {
             WorkStation best = null;
             float bestSqr = maxDistance * maxDistance;
+
             foreach (var station in All)
             {
-                if (station == null) continue;
+                if (station == null || station.IsOccupied) continue;
+
                 float sqr = (station.StandPosition - position).sqrMagnitude;
                 if (sqr <= bestSqr)
                 {
@@ -36,6 +48,7 @@ namespace OfficeImposter
                     best = station;
                 }
             }
+
             return best;
         }
     }
