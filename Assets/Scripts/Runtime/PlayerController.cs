@@ -71,7 +71,7 @@ namespace OfficeImposter
             if (!IsOwner) return;
 
             // The HUD owns Escape: it opens the pause menu and frees the cursor.
-            Keyboard keyboard = NetworkHUD.IsPaused ? null : Keyboard.current;
+            Keyboard keyboard = HudController.IsPaused ? null : Keyboard.current;
 
             UpdateInteraction(keyboard);
             UpdateMovement(keyboard);

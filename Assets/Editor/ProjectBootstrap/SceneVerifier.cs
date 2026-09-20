@@ -77,7 +77,15 @@ namespace ProjectBootstrap
             problems += Check(Object.FindFirstObjectByType<AudioDirector>() != null, "AudioDirector present");
             problems += Check(Object.FindFirstObjectByType<BossAI>()?.GetComponent<VisionCone>() != null, "Boss has VisionCone");
             problems += Check(Object.FindFirstObjectByType<GameManager>() != null, "GameManager present");
-            problems += Check(Object.FindFirstObjectByType<NetworkHUD>() != null, "NetworkHUD present");
+            problems += Check(Object.FindFirstObjectByType<HudController>() != null, "HudController present");
+            problems += Check(Object.FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>() != null, "EventSystem present");
+            var canvas = Object.FindFirstObjectByType<UnityEngine.Canvas>();
+            problems += Check(canvas != null, "UI canvas present");
+            var texts = Object.FindObjectsByType<TMPro.TextMeshProUGUI>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            problems += Check(texts.Length > 10, $"TMP labels built ({texts.Length})");
+            int unfonted = 0;
+            foreach (var t in texts) if (t.font == null) unfonted++;
+            problems += Check(unfonted == 0, $"all TMP labels have a font ({unfonted} missing)");
             problems += Check(Object.FindFirstObjectByType<ThirdPersonCamera>() != null, "Camera rig present");
 
             var triangulation = NavMesh.CalculateTriangulation();

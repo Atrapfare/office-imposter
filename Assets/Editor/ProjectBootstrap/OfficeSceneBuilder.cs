@@ -72,6 +72,7 @@ namespace ProjectBootstrap
             CreateBoss(palette, waypoints);
             CreateCoworkers(palette);
             CreateSystems();
+            HudBuilder.Build();
 
             EditorSceneManager.MarkSceneDirty(scene);
             EditorSceneManager.SaveScene(scene, ScenePath);
@@ -251,7 +252,9 @@ namespace ProjectBootstrap
         {
             var go = new GameObject("Main Camera");
             go.tag = "MainCamera";
-            go.transform.position = new Vector3(-16f, 6f, -6f);
+            // Framing for the main menu, before any player spawns and takes the rig over.
+            go.transform.position = new Vector3(-17.5f, 2.3f, -12.5f);
+            go.transform.rotation = Quaternion.LookRotation(new Vector3(13f, -0.9f, 15f).normalized, Vector3.up);
 
             var camera = go.AddComponent<Camera>();
             camera.fieldOfView = 62f;
@@ -419,14 +422,16 @@ namespace ProjectBootstrap
             var root = new GameObject("SpawnPoints").transform;
             root.SetParent(parent, false);
 
+            // Kept clear of the walls and facing into the room: the chase camera sits
+            // ~6m behind the player, and a spawn near a wall makes it clip in tight.
             Vector3[] positions =
             {
-                new Vector3(-18f, 0f, -2f),
-                new Vector3(-18f, 0f, 2f),
-                new Vector3(-16f, 0f, -3.5f),
-                new Vector3(-16f, 0f, 3.5f),
-                new Vector3(-14f, 0f, -2f),
-                new Vector3(-14f, 0f, 2f),
+                new Vector3(-13f, 0f, -3.5f),
+                new Vector3(-10f, 0f, -3.5f),
+                new Vector3(-7f, 0f, -3.5f),
+                new Vector3(-13f, 0f, -5f),
+                new Vector3(-10f, 0f, -5f),
+                new Vector3(-7f, 0f, -5f),
             };
 
             for (int i = 0; i < positions.Length; i++)
@@ -434,7 +439,7 @@ namespace ProjectBootstrap
                 var point = new GameObject($"Spawn_{i + 1}");
                 point.transform.SetParent(root, false);
                 point.transform.localPosition = positions[i];
-                point.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
+                point.transform.localRotation = Quaternion.identity;
                 point.AddComponent<SpawnPoint>();
             }
         }
@@ -619,7 +624,6 @@ namespace ProjectBootstrap
             go.AddComponent<GameManager>();
             go.AddComponent<MeetingSystem>();
             go.AddComponent<AudioDirector>();
-            go.AddComponent<NetworkHUD>();
             go.AddComponent<AutoStart>();
         }
 

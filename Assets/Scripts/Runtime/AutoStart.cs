@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Globalization;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -19,6 +20,8 @@ namespace OfficeImposter
             bool client = false;
             string address = null;
             float autoQuitSeconds = 0f;
+            string shotPath = null;
+            float shotDelay = 6f;
 
             for (int i = 0; i < args.Length; i++)
             {
@@ -33,6 +36,15 @@ namespace OfficeImposter
                     case "-address":
                         if (i + 1 < args.Length) address = args[++i];
                         break;
+                    case "-shot":
+                        if (i + 1 < args.Length) shotPath = args[++i];
+                        break;
+                    case "-shotdelay":
+                        if (i + 1 < args.Length)
+                        {
+                            float.TryParse(args[++i], NumberStyles.Float, CultureInfo.InvariantCulture, out shotDelay);
+                        }
+                        break;
                     case "-autoquit":
                         if (i + 1 < args.Length)
                         {
@@ -42,6 +54,7 @@ namespace OfficeImposter
                 }
             }
 
+            if (shotPath != null) StartCoroutine(CaptureThenQuit(shotPath, shotDelay));
             if (!host && !client) return;
 
             var manager = NetworkManager.Singleton;
@@ -64,6 +77,20 @@ namespace OfficeImposter
             Debug.Log($"[AutoStart] mode={(host ? "host" : "client")} started={started}");
 
             if (autoQuitSeconds > 0f) Invoke(nameof(ReportAndQuit), autoQuitSeconds);
+        }
+
+        // Captures the real player window, overlay UI included, which a RenderTexture
+        // camera render in the Editor cannot show.
+        static IEnumerator CaptureThenQuit(string path, float delay)
+        {
+            yield return new WaitForSeconds(delay);
+
+            ScreenCapture.CaptureScreenshot(path);
+            Debug.Log($"[AutoStart] screenshot requested at {path}");
+
+            yield return new WaitForSeconds(2.5f);
+            Debug.Log("[AutoStart] screenshot done");
+            Application.Quit();
         }
 
         void ReportAndQuit()

@@ -5,8 +5,11 @@ namespace OfficeImposter
 {
     public class ThirdPersonCamera : MonoBehaviour
     {
-        [SerializeField] float distance = 4.6f;
-        [SerializeField] float focusHeight = 1.5f;
+        [SerializeField] float distance = 5.8f;
+        [SerializeField] float focusHeight = 1.45f;
+        // Over-the-shoulder: dead-centre framing puts the character in front of
+        // everything the player needs to watch.
+        [SerializeField] float shoulderOffset = 0.8f;
         public static float Sensitivity = 0.12f;
         [SerializeField] float minPitch = -20f;
         [SerializeField] float maxPitch = 42f;
@@ -30,7 +33,7 @@ namespace OfficeImposter
         {
             if (_target == null) return;
 
-            if (CursorLock.IsLocked && !NetworkHUD.IsPaused && Mouse.current != null)
+            if (CursorLock.IsLocked && !HudController.IsPaused && Mouse.current != null)
             {
                 Vector2 delta = Mouse.current.delta.ReadValue();
                 _yaw += delta.x * Sensitivity;
@@ -38,7 +41,7 @@ namespace OfficeImposter
             }
 
             Quaternion rotation = Quaternion.Euler(_pitch, _yaw, 0f);
-            Vector3 focus = _target.position + Vector3.up * focusHeight;
+            Vector3 focus = _target.position + Vector3.up * focusHeight + rotation * Vector3.right * shoulderOffset;
             Vector3 desired = focus - rotation * Vector3.forward * distance;
 
             Vector3 resolved = ResolveWallClipping(focus, desired);
@@ -70,7 +73,7 @@ namespace OfficeImposter
                 }
             }
 
-            return blocked ? focus + direction / length * Mathf.Max(nearest - 0.25f, 0.4f) : desired;
+            return blocked ? focus + direction / length * Mathf.Max(nearest - 0.25f, 1.6f) : desired;
         }
     }
 }
