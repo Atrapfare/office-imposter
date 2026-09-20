@@ -5,11 +5,14 @@ namespace OfficeImposter
 {
     public class ThirdPersonCamera : MonoBehaviour
     {
-        [SerializeField] float distance = 5f;
+        [SerializeField] float distance = 4.6f;
         [SerializeField] float focusHeight = 1.5f;
         [SerializeField] float sensitivity = 0.12f;
         [SerializeField] float minPitch = -20f;
-        [SerializeField] float maxPitch = 60f;
+        [SerializeField] float maxPitch = 42f;
+        // Above the ceiling the room's single-sided ceiling is culled away and the
+        // player would stare into empty space, so the rig stays below it.
+        [SerializeField] float maxHeight = 3.1f;
 
         Transform _target;
         float _yaw;
@@ -38,7 +41,10 @@ namespace OfficeImposter
             Vector3 focus = _target.position + Vector3.up * focusHeight;
             Vector3 desired = focus - rotation * Vector3.forward * distance;
 
-            transform.position = ResolveWallClipping(focus, desired);
+            Vector3 resolved = ResolveWallClipping(focus, desired);
+            resolved.y = Mathf.Min(resolved.y, maxHeight);
+
+            transform.position = resolved;
             transform.rotation = rotation;
         }
 

@@ -23,13 +23,15 @@ namespace ProjectBootstrap
         const string MaterialDir = "Assets/Materials";
         const string NavMeshAssetPath = "Assets/Scenes/Office_NavMesh.asset";
 
-        const float WallHeight = 3.2f;
+        const float WallHeight = 3.4f;
         const float WallThickness = 0.3f;
+        const float CeilingHeight = 3.35f;
 
         class Palette
         {
             public Material Floor, Carpet, Wall, Partition, DeskTop, DeskBody, Chair, Screen;
             public Material Cabinet, Plant, Skin, Shirt, Trousers, Suit, SuitDark, Accent;
+            public Material Trim, Glass, LightPanel, Metal, Paper, Rubber, Poster, CeilingTile;
         }
 
         [MenuItem("Office Imposter/Rebuild Office Scene")]
@@ -43,6 +45,7 @@ namespace ProjectBootstrap
             ConfigureLightingEnvironment();
             CreateDirectionalLight();
             CreateCamera();
+            CreateGlobalVolume();
 
             var office = new GameObject("Office").transform;
             BuildShell(office, palette);
@@ -50,11 +53,18 @@ namespace ProjectBootstrap
             BuildDesks(office, palette);
             BuildMeetingRoom(office, palette);
             BuildBreakRoom(office, palette);
+            BuildTrim(office, palette);
+            BuildWindows(office, palette);
+            BuildCeiling(office, palette);
+            BuildCeilingLights(office, palette);
+            BuildProps(office, palette);
 
             CreateSpawnPoints(office);
             Transform[] waypoints = CreateWaypoints(office);
 
             BakeNavMesh();
+            CreateReflectionProbe();
+            CreateLightProbes();
 
             GameObject playerPrefab = CreatePlayerPrefab(palette);
             CreateNetworkManager(playerPrefab);
@@ -107,6 +117,9 @@ namespace ProjectBootstrap
             if (material.HasProperty("_Color")) material.SetColor("_Color", color);
             if (material.HasProperty("_Smoothness")) material.SetFloat("_Smoothness", smoothness);
             if (material.HasProperty("_Metallic")) material.SetFloat("_Metallic", metallic);
+            material.DisableKeyword("_EMISSION");
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.EmissiveIsBlack;
+            if (material.HasProperty("_EmissionColor")) material.SetColor("_EmissionColor", Color.black);
 
             if (isNew) AssetDatabase.CreateAsset(material, path);
             else EditorUtility.SetDirty(material);
@@ -114,16 +127,34 @@ namespace ProjectBootstrap
             return material;
         }
 
+        static Material Emissive(string name, Color baseColor, Color emission, float smoothness = 0.6f)
+        {
+            Material material = Mat(name, baseColor, smoothness);
+            material.EnableKeyword("_EMISSION");
+            material.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+            if (material.HasProperty("_EmissionColor")) material.SetColor("_EmissionColor", emission);
+            EditorUtility.SetDirty(material);
+            return material;
+        }
+
         static Palette CreatePalette() => new Palette
         {
-            Floor = Mat("Floor", new Color(0.78f, 0.76f, 0.71f)),
-            Carpet = Mat("Carpet", new Color(0.36f, 0.42f, 0.48f)),
-            Wall = Mat("Wall", new Color(0.90f, 0.89f, 0.86f)),
-            Partition = Mat("Partition", new Color(0.55f, 0.62f, 0.66f)),
+            Floor = Mat("Floor", new Color(0.52f, 0.50f, 0.46f), 0.03f),
+            Carpet = Mat("Carpet", new Color(0.16f, 0.20f, 0.26f), 0.02f),
+            Wall = Mat("Wall", new Color(0.84f, 0.83f, 0.80f)),
+            Partition = Mat("Partition", new Color(0.44f, 0.50f, 0.56f)),
             DeskTop = Mat("DeskTop", new Color(0.83f, 0.68f, 0.48f)),
             DeskBody = Mat("DeskBody", new Color(0.28f, 0.29f, 0.32f)),
             Chair = Mat("Chair", new Color(0.20f, 0.23f, 0.28f)),
-            Screen = Mat("Screen", new Color(0.13f, 0.18f, 0.24f), 0.75f),
+            Screen = Emissive("Screen", new Color(0.05f, 0.07f, 0.10f), new Color(0.30f, 0.52f, 0.72f) * 1.6f, 0.82f),
+            Trim = Mat("Trim", new Color(0.72f, 0.71f, 0.69f), 0.35f),
+            Glass = Emissive("Glass", new Color(0.72f, 0.82f, 0.90f), new Color(0.62f, 0.74f, 0.92f) * 0.55f, 0.92f),
+            LightPanel = Emissive("LightPanel", new Color(0.95f, 0.95f, 0.92f), new Color(1f, 0.97f, 0.88f) * 1.9f, 0.5f),
+            Metal = Mat("Metal", new Color(0.70f, 0.72f, 0.75f), 0.62f, 0.85f),
+            Paper = Mat("Paper", new Color(0.95f, 0.94f, 0.90f), 0.05f),
+            Rubber = Mat("Rubber", new Color(0.12f, 0.12f, 0.14f), 0.08f),
+            Poster = Mat("Poster", new Color(0.86f, 0.74f, 0.42f), 0.1f),
+            CeilingTile = Mat("CeilingTile", new Color(0.66f, 0.65f, 0.63f), 0.04f),
             Cabinet = Mat("Cabinet", new Color(0.62f, 0.64f, 0.67f), 0.3f, 0.4f),
             Plant = Mat("Plant", new Color(0.29f, 0.53f, 0.31f)),
             Skin = Mat("Skin", new Color(0.93f, 0.76f, 0.62f)),
@@ -148,12 +179,54 @@ namespace ProjectBootstrap
             return go;
         }
 
+        // Single-sided, downward-facing surface: visible from inside the room but
+        // backface-culled from above, so the chase camera can rise through it.
+        static GameObject DownQuad(string name, Transform parent, Vector3 center, Vector2 size, Material material)
+        {
+            var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            go.name = name;
+            go.transform.SetParent(parent, false);
+            go.transform.localPosition = center;
+            go.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+            go.transform.localScale = new Vector3(size.x, size.y, 1f);
+
+            Object.DestroyImmediate(go.GetComponent<Collider>());
+
+            var renderer = go.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = material;
+            renderer.shadowCastingMode = ShadowCastingMode.Off;   // keep the sun lighting the interior
+            renderer.receiveShadows = false;                      // lamps sit below it; shadowing it just turns it black
+
+            return go;
+        }
+
+        static void BuildCeiling(Transform parent, Palette p)
+        {
+            var ceiling = new GameObject("Ceiling").transform;
+            ceiling.SetParent(parent, false);
+
+            // Tiled rather than one big quad so per-pixel lights interpolate sensibly.
+            const float tile = 5f;
+            for (float x = -20f; x < 20f; x += tile)
+            {
+                for (float z = -15f; z < 15f; z += tile)
+                {
+                    DownQuad($"Tile_{x}_{z}", ceiling,
+                        new Vector3(x + tile * 0.5f, CeilingHeight, z + tile * 0.5f),
+                        new Vector2(tile, tile), p.CeilingTile);
+                }
+            }
+        }
+
         static void ConfigureLightingEnvironment()
         {
+            // No skybox: the office is an interior, and an open sky above the walls
+            // both looks unfinished and blows out the auto-exposed image.
+            RenderSettings.skybox = null;
             RenderSettings.ambientMode = AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = new Color(0.62f, 0.66f, 0.72f);
-            RenderSettings.ambientEquatorColor = new Color(0.48f, 0.49f, 0.52f);
-            RenderSettings.ambientGroundColor = new Color(0.32f, 0.31f, 0.30f);
+            RenderSettings.ambientSkyColor = new Color(0.26f, 0.29f, 0.34f);
+            RenderSettings.ambientEquatorColor = new Color(0.20f, 0.21f, 0.24f);
+            RenderSettings.ambientGroundColor = new Color(0.30f, 0.30f, 0.31f);
             RenderSettings.fog = false;
         }
 
@@ -165,7 +238,7 @@ namespace ProjectBootstrap
             var light = go.AddComponent<Light>();
             light.type = LightType.Directional;
             light.color = new Color(1f, 0.97f, 0.91f);
-            light.intensity = 1.35f;
+            light.intensity = 0.85f;
             light.shadows = LightShadows.Soft;
         }
 
@@ -179,6 +252,8 @@ namespace ProjectBootstrap
             camera.fieldOfView = 62f;
             camera.nearClipPlane = 0.08f;
             camera.farClipPlane = 220f;
+            camera.clearFlags = CameraClearFlags.SolidColor;
+            camera.backgroundColor = new Color(0.07f, 0.08f, 0.10f);
 
             go.AddComponent<AudioListener>();
             go.AddComponent<ThirdPersonCamera>();
@@ -186,8 +261,11 @@ namespace ProjectBootstrap
 
         static void BuildShell(Transform parent, Palette p)
         {
-            Box("Floor", parent, new Vector3(0f, -0.1f, 0f), new Vector3(40f, 0.2f, 30f), p.Floor);
-            Box("CarpetOpenArea", parent, new Vector3(-6f, 0.005f, 0f), new Vector3(27.5f, 0.02f, 29.4f), p.Carpet, false);
+            // Floor is built as non-overlapping slabs per zone. An overlaid carpet plane
+            // z-fights with the slab beneath it at grazing angles across the long room.
+            Box("FloorOpenPlan", parent, new Vector3(-6f, -0.1f, 0f), new Vector3(28f, 0.2f, 30f), p.Carpet);
+            Box("FloorMeeting", parent, new Vector3(14f, -0.1f, 7.5f), new Vector3(12f, 0.2f, 15f), p.Carpet);
+            Box("FloorBreak", parent, new Vector3(14f, -0.1f, -7.5f), new Vector3(12f, 0.2f, 15f), p.Floor);
 
             float y = WallHeight * 0.5f;
             Box("WallNorth", parent, new Vector3(0f, y, 15f), new Vector3(40.3f, WallHeight, WallThickness), p.Wall);
@@ -284,7 +362,6 @@ namespace ProjectBootstrap
             var room = new GameObject("MeetingRoom").transform;
             room.SetParent(parent, false);
 
-            Box("Carpet", room, new Vector3(15f, 0.005f, 7.5f), new Vector3(9.5f, 0.02f, 14.5f), p.Carpet, false);
             Box("Table", room, new Vector3(15f, 0.72f, 7.5f), new Vector3(4.6f, 0.1f, 1.9f), p.DeskTop);
             Box("TableLegA", room, new Vector3(13.2f, 0.36f, 7.5f), new Vector3(0.25f, 0.72f, 1.5f), p.DeskBody, false);
             Box("TableLegB", room, new Vector3(16.8f, 0.36f, 7.5f), new Vector3(0.25f, 0.72f, 1.5f), p.DeskBody, false);
@@ -489,6 +566,195 @@ namespace ProjectBootstrap
             go.AddComponent<GameManager>();
             go.AddComponent<NetworkHUD>();
             go.AddComponent<AutoStart>();
+        }
+
+        static void CreateGlobalVolume()
+        {
+            var profile = AssetDatabase.LoadAssetAtPath<VolumeProfile>(GraphicsSetup.ProfilePath);
+            if (profile == null)
+            {
+                Debug.LogWarning("[OfficeSceneBuilder] Post-processing profile missing; run Apply Graphics Settings first.");
+                return;
+            }
+
+            var go = new GameObject("Global Volume");
+            var volume = go.AddComponent<Volume>();
+            volume.isGlobal = true;
+            volume.priority = 0f;
+            volume.sharedProfile = profile;
+        }
+
+        static void BuildTrim(Transform parent, Palette p)
+        {
+            var trim = new GameObject("Trim").transform;
+            trim.SetParent(parent, false);
+
+            // Skirting boards give the flat walls a readable floor line.
+            Box("SkirtNorth", trim, new Vector3(0f, 0.07f, 14.8f), new Vector3(40f, 0.14f, 0.12f), p.Trim, false);
+            Box("SkirtSouth", trim, new Vector3(0f, 0.07f, -14.8f), new Vector3(40f, 0.14f, 0.12f), p.Trim, false);
+            Box("SkirtWest", trim, new Vector3(-19.8f, 0.07f, 0f), new Vector3(0.12f, 0.14f, 30f), p.Trim, false);
+            Box("SkirtEast", trim, new Vector3(19.8f, 0.07f, 0f), new Vector3(0.12f, 0.14f, 30f), p.Trim, false);
+
+            // Door frames around the two openings in the internal divider.
+            Box("DoorFrameTop", trim, new Vector3(8f, 2.3f, 0f), new Vector3(0.45f, 0.25f, 4.2f), p.Trim);
+            Box("DoorFrameA", trim, new Vector3(8f, 1.1f, 2.05f), new Vector3(0.45f, 2.2f, 0.16f), p.Trim, false);
+            Box("DoorFrameB", trim, new Vector3(8f, 1.1f, -2.05f), new Vector3(0.45f, 2.2f, 0.16f), p.Trim, false);
+
+            Box("WallClock", trim, new Vector3(-19.7f, 2.5f, 0f), new Vector3(0.1f, 0.55f, 0.55f), p.Trim, false);
+            Box("PosterA", trim, new Vector3(-19.7f, 2.1f, -8f), new Vector3(0.06f, 1f, 1.4f), p.Poster, false);
+            Box("PosterB", trim, new Vector3(-2f, 2.1f, 14.7f), new Vector3(1.4f, 1f, 0.06f), p.Poster, false);
+        }
+
+        static void BuildWindows(Transform parent, Palette p)
+        {
+            var windows = new GameObject("Windows").transform;
+            windows.SetParent(parent, false);
+
+            // South wall glazing, with a soft fill light per bay so the room reads as daylit.
+            for (int i = 0; i < 4; i++)
+            {
+                float x = -15f + i * 8f;
+                Box($"GlassS_{i}", windows, new Vector3(x, 1.95f, -14.85f), new Vector3(5.2f, 1.8f, 0.08f), p.Glass, false);
+                Box($"FrameS_{i}", windows, new Vector3(x, 1.95f, -14.78f), new Vector3(5.4f, 0.1f, 0.12f), p.Trim, false);
+                Box($"SillS_{i}", windows, new Vector3(x, 1.0f, -14.7f), new Vector3(5.4f, 0.1f, 0.3f), p.Trim, false);
+
+                if (i % 2 == 0) CreateFillLight($"WindowLightS_{i}", new Vector3(x, 2.1f, -13.6f), new Color(0.72f, 0.82f, 1f), 0.9f, 8f);
+            }
+
+            for (int i = 0; i < 3; i++)
+            {
+                float z = -8f + i * 8f;
+                Box($"GlassW_{i}", windows, new Vector3(-19.85f, 1.95f, z), new Vector3(0.08f, 1.8f, 5.2f), p.Glass, false);
+                Box($"SillW_{i}", windows, new Vector3(-19.7f, 1.0f, z), new Vector3(0.3f, 0.1f, 5.4f), p.Trim, false);
+
+                if (i == 1) CreateFillLight($"WindowLightW_{i}", new Vector3(-18.6f, 2.1f, z), new Color(0.72f, 0.82f, 1f), 0.9f, 8f);
+            }
+        }
+
+        static void CreateFillLight(string name, Vector3 position, Color color, float intensity, float range)
+        {
+            var go = new GameObject(name);
+            go.transform.position = position;
+
+            var light = go.AddComponent<Light>();
+            light.type = LightType.Point;
+            light.color = color;
+            light.intensity = intensity;
+            light.range = range;
+            light.shadows = LightShadows.None;   // fill only; the directional carries the shadowing
+            light.renderMode = LightRenderMode.ForceVertex;
+        }
+
+        static void BuildCeilingLights(Transform parent, Palette p)
+        {
+            var fixtures = new GameObject("CeilingLights").transform;
+            fixtures.SetParent(parent, false);
+
+            // Staggered and sparse on purpose: overlapping fixtures wash the room flat,
+            // and the boss-evasion loop needs pools of light with shadow between them.
+            Vector3[] positions =
+            {
+                new Vector3(-16f, 0f, 8f), new Vector3(-5f, 0f, 8f),
+                new Vector3(-11f, 0f, -7f), new Vector3(1f, 0f, -8f),
+                new Vector3(-8f, 0f, 0.5f),
+                new Vector3(15f, 0f, 7.5f), new Vector3(15f, 0f, -8f),
+            };
+
+            for (int i = 0; i < positions.Length; i++)
+            {
+                Vector3 at = positions[i];
+                var fixtureRoot = new GameObject($"Fixture_{i}").transform;
+                fixtureRoot.SetParent(fixtures, false);
+                fixtureRoot.localPosition = at;
+
+                // Flush-mounted into the ceiling so nothing dangles above it.
+                Box("Housing", fixtureRoot, new Vector3(0f, CeilingHeight - 0.04f, 0f), new Vector3(2.35f, 0.08f, 0.66f), p.Metal, false);
+                Box("Panel", fixtureRoot, new Vector3(0f, CeilingHeight - 0.09f, 0f), new Vector3(2.2f, 0.03f, 0.55f), p.LightPanel, false);
+
+                var lightGo = new GameObject("Light");
+                lightGo.transform.SetParent(fixtureRoot, false);
+                lightGo.transform.localPosition = new Vector3(0f, CeilingHeight - 0.2f, 0f);
+
+                var light = lightGo.AddComponent<Light>();
+                light.type = LightType.Point;
+                light.color = new Color(1f, 0.96f, 0.88f);
+                light.intensity = 0.85f;
+                light.range = 8.5f;
+                // A few shadow casters give the furniture real contact shadows; the rest
+                // stay cheap fill so the additional-light budget holds.
+                light.shadows = i < 3 ? LightShadows.Soft : LightShadows.None;
+                light.shadowStrength = 0.75f;
+                light.renderMode = LightRenderMode.ForcePixel;
+            }
+        }
+
+        static void BuildProps(Transform parent, Palette p)
+        {
+            var props = new GameObject("Props").transform;
+            props.SetParent(parent, false);
+
+            // Printer corner
+            var printer = new GameObject("Printer").transform;
+            printer.SetParent(props, false);
+            printer.localPosition = new Vector3(4.5f, 0f, 12.5f);
+            Box("Base", printer, new Vector3(0f, 0.4f, 0f), new Vector3(1.1f, 0.8f, 0.8f), p.Cabinet);
+            Box("Body", printer, new Vector3(0f, 0.95f, 0f), new Vector3(0.95f, 0.35f, 0.7f), p.Rubber, false);
+            Box("Tray", printer, new Vector3(0f, 0.86f, 0.42f), new Vector3(0.7f, 0.04f, 0.3f), p.Paper, false);
+            Box("PaperStack", printer, new Vector3(0.62f, 0.86f, 0f), new Vector3(0.3f, 0.12f, 0.42f), p.Paper, false);
+
+            // Water cooler
+            var cooler = new GameObject("WaterCooler").transform;
+            cooler.SetParent(props, false);
+            cooler.localPosition = new Vector3(-19f, 0f, -5f);
+            Box("Body", cooler, new Vector3(0f, 0.55f, 0f), new Vector3(0.5f, 1.1f, 0.5f), p.Cabinet);
+            Box("Bottle", cooler, new Vector3(0f, 1.4f, 0f), new Vector3(0.42f, 0.6f, 0.42f), p.Glass, false);
+
+            // Desk clutter: a mug and a paper stack per workstation row.
+            float[] columns = { -16f, -10f, -4f, 2f };
+            foreach (float x in columns)
+            {
+                foreach (float z in new[] { 7f, -7f })
+                {
+                    float inward = z > 0f ? -1f : 1f;
+                    Box("Mug", props, new Vector3(x + 0.62f, 0.83f, z + 0.18f * inward), new Vector3(0.12f, 0.13f, 0.12f), p.Accent, false);
+                    Box("Papers", props, new Vector3(x - 0.6f, 0.79f, z + 0.1f * inward), new Vector3(0.32f, 0.04f, 0.24f), p.Paper, false);
+                }
+            }
+
+            Box("Whiteboard", props, new Vector3(-7f, 1.9f, 14.7f), new Vector3(3.6f, 1.3f, 0.07f), p.Paper, false);
+            Box("WhiteboardFrame", props, new Vector3(-7f, 1.9f, 14.75f), new Vector3(3.8f, 1.45f, 0.05f), p.Metal, false);
+        }
+
+        static void CreateReflectionProbe()
+        {
+            var go = new GameObject("ReflectionProbe");
+            go.transform.position = new Vector3(-6f, 1.8f, 0f);
+
+            var probe = go.AddComponent<ReflectionProbe>();
+            probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
+            probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.OnAwake;
+            probe.size = new Vector3(42f, 6f, 32f);
+            probe.resolution = 256;
+            probe.cullingMask = ~0;
+            probe.intensity = 0.35f;   // full-strength env reflection washes out matte surfaces
+        }
+
+        static void CreateLightProbes()
+        {
+            var go = new GameObject("LightProbes");
+            var group = go.AddComponent<LightProbeGroup>();
+
+            var positions = new List<Vector3>();
+            for (float x = -18f; x <= 18f; x += 6f)
+            {
+                for (float z = -12f; z <= 12f; z += 6f)
+                {
+                    positions.Add(new Vector3(x, 0.6f, z));
+                    positions.Add(new Vector3(x, 2.4f, z));
+                }
+            }
+
+            group.probePositions = positions.ToArray();
         }
 
         static void RegisterScene()
