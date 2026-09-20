@@ -14,18 +14,26 @@ permissions:
 jobs:
   tests:
     name: Run EditMode and PlayMode tests
-    if: ${{ secrets.UNITY_LICENSE != '' }}
     runs-on: ubuntu-latest
     permissions:
       checks: write
       contents: read
+    env:
+      UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           lfs: true
 
+      - name: Explain how to enable CI tests
+        if: ${{ env.UNITY_LICENSE == '' }}
+        run: |
+          echo "UNITY_LICENSE secret is not configured."
+          echo "Add UNITY_LICENSE in repository secrets to run Unity tests in CI."
+
       - name: Cache Unity Library
+        if: ${{ env.UNITY_LICENSE != '' }}
         uses: actions/cache@v4
         with:
           path: Library
@@ -34,20 +42,9 @@ jobs:
             Library-${{ runner.os }}-
 
       - name: Run tests
+        if: ${{ env.UNITY_LICENSE != '' }}
         uses: game-ci/unity-test-runner@v4
-        env:
-          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
         with:
           githubToken: ${{ secrets.GITHUB_TOKEN }}
           testMode: all
           unityVersion: 6000.3.24f1
-
-  missing-license:
-    name: Missing Unity license secret
-    if: ${{ secrets.UNITY_LICENSE == '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Explain how to enable CI tests
-        run: |
-          echo "UNITY_LICENSE secret is not configured."
-          echo "Add UNITY_LICENSE in repository secrets to run Unity tests in CI."
