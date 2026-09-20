@@ -8,77 +8,82 @@ using UnityEngine.UI;
 
 namespace OfficeImposter
 {
-    // Drives the generated uGUI hierarchy. References are bound by HudBuilder when the
+    // Drives the generated uGUI hierarchy. HudBuilder assigns these references when the
     // scene is generated, so nothing here searches by name at runtime.
     public class HudController : MonoBehaviour
     {
         public static bool IsPaused { get; private set; }
 
-        [SerializeField] GameObject mainMenu;
-        [SerializeField] GameObject hud;
-        [SerializeField] GameObject pauseMenu;
-        [SerializeField] GameObject endScreen;
+        [Header("Screens")]
+        public GameObject mainMenu;
+        public GameObject hud;
+        public GameObject pauseMenu;
+        public GameObject endScreen;
 
-        [SerializeField] TMP_InputField addressField;
-        [SerializeField] Button hostButton;
-        [SerializeField] Button joinButton;
-        [SerializeField] Button resumeButton;
-        [SerializeField] Button leaveButton;
-        [SerializeField] Button endMenuButton;
-        // Both the main menu and the pause menu carry a settings block, so these are
-        // arrays kept in sync rather than a single pair of controls.
-        [SerializeField] Slider[] volumeSliders;
-        [SerializeField] Slider[] sensitivitySliders;
-        [SerializeField] TextMeshProUGUI[] volumeLabels;
-        [SerializeField] TextMeshProUGUI[] sensitivityLabels;
+        [Header("Menu")]
+        public TMP_InputField addressField;
+        public Button hostButton;
+        public Button joinButton;
+        public Button resumeButton;
+        public Button leaveButton;
+        public Button endMenuButton;
+        public Slider[] volumeSliders;
+        public Slider[] sensitivitySliders;
+        public TextMeshProUGUI[] volumeLabels;
+        public TextMeshProUGUI[] sensitivityLabels;
 
-        [SerializeField] TextMeshProUGUI statusText;
-        [SerializeField] TextMeshProUGUI suspicionText;
-        [SerializeField] Image suspicionFill;
-        [SerializeField] TextMeshProUGUI watchedText;
+        [Header("Status")]
+        public TextMeshProUGUI statusText;
+        public TextMeshProUGUI suspicionText;
+        public Image suspicionFill;
+        public TextMeshProUGUI energyText;
+        public Image energyFill;
+        public TextMeshProUGUI reasonText;
+        public TextMeshProUGUI watchedText;
+        public GameObject crosshair;
 
-        [SerializeField] GameObject meetingPanel;
-        [SerializeField] TextMeshProUGUI meetingText;
-        [SerializeField] GameObject promptPanel;
-        [SerializeField] TextMeshProUGUI promptText;
-        [SerializeField] Image promptFill;
+        [Header("Meeting")]
+        public GameObject meetingPanel;
+        public TextMeshProUGUI meetingText;
+        public GameObject promptPanel;
+        public TextMeshProUGUI promptText;
+        public Image promptFill;
 
-        [SerializeField] GameObject bottomPanel;
-        [SerializeField] TextMeshProUGUI taskTitle;
-        [SerializeField] TextMeshProUGUI taskSequence;
-        [SerializeField] TextMeshProUGUI taskHint;
+        [Header("Job")]
+        public GameObject jobPanel;
+        public TextMeshProUGUI jobText;
+        public TextMeshProUGUI jobTimerText;
+        public Image jobFill;
 
-        [SerializeField] TextMeshProUGUI endTitle;
-        [SerializeField] TextMeshProUGUI endStats;
+        [Header("Confrontation")]
+        public GameObject confrontPanel;
+        public TextMeshProUGUI confrontQuestion;
+        public TextMeshProUGUI[] confrontAnswers;
+        public Image confrontFill;
+
+        [Header("Task")]
+        public GameObject bottomPanel;
+        public TextMeshProUGUI taskTitle;
+        public TextMeshProUGUI taskSequence;
+        public TextMeshProUGUI taskHint;
+        public GameObject holdPanel;
+        public Image holdFill;
+        public RectTransform holdWindow;
+
+        [Header("End")]
+        public TextMeshProUGUI endTitle;
+        public TextMeshProUGUI endStats;
+        public TextMeshProUGUI endGrade;
 
         static readonly Color Good = new Color(0.36f, 0.80f, 0.47f);
         static readonly Color Bad = new Color(0.93f, 0.26f, 0.26f);
+        static readonly Color Warn = new Color(0.97f, 0.76f, 0.33f);
 
         readonly StringBuilder _builder = new StringBuilder();
         bool _wasWatched;
         bool _wasCaught;
+        bool _wasConfronted;
         MeetingSystem.Phase _lastPhase = MeetingSystem.Phase.None;
-
-        public void Bind(
-            GameObject menuRoot, GameObject hudRoot, GameObject pauseRoot, GameObject endRoot,
-            TMP_InputField address, Button host, Button join, Button resume, Button leave, Button endMenu,
-            Slider[] volumes, Slider[] sensitivities, TextMeshProUGUI[] volumeTexts, TextMeshProUGUI[] sensitivityTexts,
-            TextMeshProUGUI status, TextMeshProUGUI suspicion, Image suspicionBar, TextMeshProUGUI watched,
-            GameObject meetingRoot, TextMeshProUGUI meeting, GameObject promptRoot, TextMeshProUGUI prompt, Image promptBar,
-            GameObject bottomRoot, TextMeshProUGUI title, TextMeshProUGUI sequence, TextMeshProUGUI hint,
-            TextMeshProUGUI endTitleText, TextMeshProUGUI endStatsText)
-        {
-            mainMenu = menuRoot; hud = hudRoot; pauseMenu = pauseRoot; endScreen = endRoot;
-            addressField = address; hostButton = host; joinButton = join;
-            resumeButton = resume; leaveButton = leave; endMenuButton = endMenu;
-            volumeSliders = volumes; sensitivitySliders = sensitivities;
-            volumeLabels = volumeTexts; sensitivityLabels = sensitivityTexts;
-            statusText = status; suspicionText = suspicion; suspicionFill = suspicionBar; watchedText = watched;
-            meetingPanel = meetingRoot; meetingText = meeting; promptPanel = promptRoot;
-            promptText = prompt; promptFill = promptBar;
-            bottomPanel = bottomRoot; taskTitle = title; taskSequence = sequence; taskHint = hint;
-            endTitle = endTitleText; endStats = endStatsText;
-        }
 
         void Start()
         {
@@ -95,8 +100,8 @@ namespace OfficeImposter
             }
             foreach (var slider in sensitivitySliders)
             {
-                slider.SetValueWithoutNotify(ThirdPersonCamera.Sensitivity);
-                slider.onValueChanged.AddListener(v => ThirdPersonCamera.Sensitivity = v);
+                slider.SetValueWithoutNotify(FirstPersonLook.Sensitivity);
+                slider.onValueChanged.AddListener(v => FirstPersonLook.Sensitivity = v);
             }
 
             IsPaused = false;
@@ -160,7 +165,7 @@ namespace OfficeImposter
 
             SyncSettings();
 
-            if (finished) UpdateEndScreen(fired);
+            if (finished) UpdateEndScreen(fired, status);
             else if (connected) UpdateHud(manager, status, game);
 
             DriveAudioFeedback(status);
@@ -172,33 +177,48 @@ namespace OfficeImposter
             {
                 if (!Mathf.Approximately(slider.value, AudioDirector.MasterVolume)) slider.SetValueWithoutNotify(AudioDirector.MasterVolume);
             }
-            foreach (var label in volumeLabels)
-            {
-                label.text = $"Lautstärke   {Mathf.RoundToInt(AudioDirector.MasterVolume * 100f)}%";
-            }
+            foreach (var label in volumeLabels) label.text = $"Lautstärke   {Mathf.RoundToInt(AudioDirector.MasterVolume * 100f)}%";
 
             foreach (var slider in sensitivitySliders)
             {
-                if (!Mathf.Approximately(slider.value, ThirdPersonCamera.Sensitivity)) slider.SetValueWithoutNotify(ThirdPersonCamera.Sensitivity);
+                if (!Mathf.Approximately(slider.value, FirstPersonLook.Sensitivity)) slider.SetValueWithoutNotify(FirstPersonLook.Sensitivity);
             }
-            foreach (var label in sensitivityLabels)
-            {
-                label.text = $"Maus-Empfindlichkeit   {ThirdPersonCamera.Sensitivity:0.00}";
-            }
+            foreach (var label in sensitivityLabels) label.text = $"Maus-Empfindlichkeit   {FirstPersonLook.Sensitivity:0.00}";
         }
 
         void UpdateHud(NetworkManager manager, PlayerStatus status, GameManager game)
         {
             string role = manager.IsHost ? "Host" : manager.IsServer ? "Server" : "Client";
             string clock = game != null ? FormatTime(game.TimeRemaining.Value) : "--:--";
-            statusText.text = $"{role}   ·   Feierabend in {clock}";
+
+            if (game != null && game.InGrace)
+            {
+                statusText.text = $"Einarbeitungszeit — noch {Mathf.CeilToInt(game.Grace.Value)}s bis es zählt";
+                statusText.color = new Color(0.55f, 0.85f, 0.62f);
+            }
+            else
+            {
+                statusText.text = $"{role}   ·   Feierabend in {clock}";
+                statusText.color = new Color(0.91f, 0.93f, 0.96f);
+            }
 
             if (status != null)
             {
-                float normalized = status.SuspicionNormalized;
+                float suspicion = status.SuspicionNormalized;
                 suspicionText.text = $"Verdacht   {Mathf.RoundToInt(status.Suspicion.Value)}%";
-                suspicionFill.fillAmount = normalized;
-                suspicionFill.color = Color.Lerp(Good, Bad, normalized);
+                suspicionFill.fillAmount = suspicion;
+                suspicionFill.color = Color.Lerp(Good, Bad, suspicion);
+
+                float energy = status.EnergyNormalized;
+                energyText.text = status.IsExhausted
+                    ? $"Energie   {Mathf.RoundToInt(status.Energy.Value)}%   ·   übermüdet"
+                    : $"Energie   {Mathf.RoundToInt(status.Energy.Value)}%";
+                energyFill.fillAmount = energy;
+                energyFill.color = Color.Lerp(Bad, new Color(0.45f, 0.72f, 0.95f), energy);
+
+                string reason = PlayerStatus.DescribeReason(status.LastReason);
+                reasonText.gameObject.SetActive(!string.IsNullOrEmpty(reason));
+                reasonText.text = reason;
 
                 bool watched = status.IsWatched && !status.IsCaught;
                 watchedText.gameObject.SetActive(watched);
@@ -210,8 +230,51 @@ namespace OfficeImposter
                 }
             }
 
+            UpdateJob(status);
+            UpdateConfrontation(status);
             UpdateMeeting();
             UpdateBottom(status);
+
+            var player = PlayerController.Local;
+            bool showCrosshair = player != null && status != null && !status.IsCaught && !status.IsConfronted
+                                 && (player.Task == null || !player.Task.IsActive);
+            crosshair.SetActive(showCrosshair);
+        }
+
+        void UpdateJob(PlayerStatus status)
+        {
+            bool has = status != null && status.HasJob;
+            jobPanel.SetActive(has);
+            if (!has) return;
+
+            var kind = (JobKind)status.JobKind.Value;
+            jobText.text = JobText.Describe(kind, status.JobStage.Value);
+
+            float remaining = Mathf.Max(0f, status.JobDeadline.Value);
+            jobTimerText.text = $"{Mathf.CeilToInt(remaining)}s";
+            jobTimerText.color = remaining < 15f ? Bad : Warn;
+
+            jobFill.fillAmount = Mathf.Clamp01(remaining / 55f);
+            jobFill.color = remaining < 15f ? Bad : Warn;
+        }
+
+        void UpdateConfrontation(PlayerStatus status)
+        {
+            bool active = status != null && status.IsConfronted;
+            confrontPanel.SetActive(active);
+            if (!active) return;
+
+            var question = ConfrontationBank.Get(status.ConfrontQuestion.Value);
+            confrontQuestion.text = $"„{question.Text}“";
+
+            for (int i = 0; i < confrontAnswers.Length; i++)
+            {
+                confrontAnswers[i].text = i < question.Answers.Length
+                    ? $"[{i + 1}]   {question.Answers[i]}"
+                    : string.Empty;
+            }
+
+            confrontFill.fillAmount = Mathf.Clamp01(status.ConfrontTimer.Value / 9f);
         }
 
         void UpdateMeeting()
@@ -230,7 +293,7 @@ namespace OfficeImposter
             meetingText.text = announced
                 ? $"MEETING in {Mathf.CeilToInt(meeting.Countdown)}s   ·   Besprechungsraum (Ost)"
                 : $"MEETING läuft   ·   noch {Mathf.CeilToInt(meeting.Countdown)}s";
-            meetingText.color = announced ? new Color(0.98f, 0.82f, 0.38f) : new Color(0.62f, 0.84f, 0.98f);
+            meetingText.color = announced ? Warn : new Color(0.62f, 0.84f, 0.98f);
 
             bool hasPrompt = meeting.CurrentPrompt != MeetingSystem.PromptAction.None;
             promptPanel.SetActive(hasPrompt);
@@ -243,9 +306,10 @@ namespace OfficeImposter
         void UpdateBottom(PlayerStatus status)
         {
             var player = PlayerController.Local;
-            if (player == null || status == null || status.IsCaught)
+            if (player == null || status == null || status.IsCaught || status.IsConfronted)
             {
                 bottomPanel.SetActive(false);
+                holdPanel.SetActive(false);
                 return;
             }
 
@@ -254,21 +318,42 @@ namespace OfficeImposter
             {
                 bottomPanel.SetActive(true);
                 taskTitle.text = $"{task.TaskName}   ·   erledigt: {task.Completed}";
-                taskSequence.text = FormatSequence(task);
-                taskHint.text = "[E] aufhören";
+
+                if (task.Kind == WorkTaskKind.HoldRelease)
+                {
+                    taskSequence.text = "[LEERTASTE] halten, im grünen Bereich loslassen";
+                    taskHint.text = "[E] aufhören";
+                    holdPanel.SetActive(true);
+                    holdFill.fillAmount = task.HoldValue;
+
+                    holdWindow.anchorMin = new Vector2(task.HoldMin, 0f);
+                    holdWindow.anchorMax = new Vector2(task.HoldMax, 1f);
+                    holdWindow.offsetMin = Vector2.zero;
+                    holdWindow.offsetMax = Vector2.zero;
+                }
+                else
+                {
+                    taskSequence.text = FormatSequence(task);
+                    taskHint.text = "[E] aufhören";
+                    holdPanel.SetActive(false);
+                }
                 return;
             }
 
+            holdPanel.SetActive(false);
+
             string message = null;
-            if (player.NearbyStation != null) message = $"[E]   an {player.NearbyStation.Label} so tun als ob";
+            if (player.Focus != null) message = player.Focus.Prompt;
+            else if (player.IsSeated) message = "[E]   aufstehen";
             else if (status.IsSeated) message = "Du sitzt im Meeting. Reagiere auf die Aufforderungen.";
+            else if (status.IsCarrying) message = "Du trägst etwas — bring es zur Ablage des Chefs.";
 
             bottomPanel.SetActive(message != null);
             if (message == null) return;
 
             taskTitle.text = string.Empty;
             taskSequence.text = message;
-            taskHint.text = string.Empty;
+            taskHint.text = player.IsCrouching ? "[STRG] aufrichten" : string.Empty;
         }
 
         string FormatSequence(WorkTaskRunner task)
@@ -286,14 +371,29 @@ namespace OfficeImposter
             return _builder.ToString();
         }
 
-        void UpdateEndScreen(bool fired)
+        void UpdateEndScreen(bool fired, PlayerStatus status)
         {
             endTitle.text = fired ? "ERWISCHT — DU BIST GEFEUERT" : "FEIERABEND — NIEMAND HAT ETWAS GEMERKT";
             endTitle.color = fired ? Bad : Good;
 
-            var player = PlayerController.Local;
-            int done = player != null && player.Task != null ? player.Task.Completed : 0;
-            endStats.text = $"Vorgetäuschte Aufgaben: {done}";
+            int tasks = status != null ? status.TasksDone.Value : 0;
+            int jobs = status != null ? status.JobsDone.Value : 0;
+            int missed = status != null ? status.JobsMissed.Value : 0;
+
+            endStats.text = $"Vorgetäuschte Aufgaben: {tasks}     ·     Aufträge erledigt: {jobs}     ·     verpasst: {missed}";
+            endGrade.text = Grade(fired, tasks, jobs, missed);
+        }
+
+        static string Grade(bool fired, int tasks, int jobs, int missed)
+        {
+            if (fired) return "Mitarbeitergespräch:  Note 6 — fristlos";
+
+            float score = jobs * 2f + tasks * 0.5f - missed * 2f;
+            if (score >= 12f) return "Mitarbeitergespräch:  Note 1 — „Vorbildlich. Wir befördern Sie.“";
+            if (score >= 8f) return "Mitarbeitergespräch:  Note 2 — „Sehr solide Arbeit.“";
+            if (score >= 4f) return "Mitarbeitergespräch:  Note 3 — „Geht in Ordnung.“";
+            if (score >= 1f) return "Mitarbeitergespräch:  Note 4 — „Da geht noch mehr.“";
+            return "Mitarbeitergespräch:  Note 5 — „Wir müssen reden.“";
         }
 
         void DriveAudioFeedback(PlayerStatus status)
@@ -305,6 +405,9 @@ namespace OfficeImposter
 
                 if (status.IsCaught && !_wasCaught) AudioDirector.Fired();
                 _wasCaught = status.IsCaught;
+
+                if (status.IsConfronted && !_wasConfronted) AudioDirector.Alert();
+                _wasConfronted = status.IsConfronted;
             }
 
             var meeting = MeetingSystem.Instance;

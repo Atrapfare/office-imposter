@@ -136,7 +136,7 @@ namespace OfficeImposter
                 bool seated = present && MeetingSeat.IsSomeoneSeated(player.transform.position, seatRadius);
 
                 player.SetSeated(seated);
-                if (!present) player.AddSuspicion(absencePerSecond * Time.deltaTime);
+                if (!present) player.AddSuspicion(absencePerSecond * Time.deltaTime, SuspicionReason.MissedMeeting);
             }
 
             UpdatePrompt();
@@ -174,7 +174,7 @@ namespace OfficeImposter
                 if (!RoomBounds.Contains(player.transform.position)) continue;
                 if (_answered.Contains(player.OwnerClientId)) continue;
 
-                player.AddSuspicion(missedPromptPenalty);
+                player.AddSuspicion(missedPromptPenalty, SuspicionReason.MissedPrompt);
             }
         }
 

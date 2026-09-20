@@ -264,7 +264,7 @@ namespace ProjectBootstrap
             camera.backgroundColor = new Color(0.07f, 0.08f, 0.10f);
 
             go.AddComponent<AudioListener>();
-            go.AddComponent<ThirdPersonCamera>();
+            go.AddComponent<FirstPersonLook>();
         }
 
         static void BuildShell(Transform parent, Palette p)
@@ -300,7 +300,8 @@ namespace ProjectBootstrap
             Box("PartitionC", cover, new Vector3(-19f, 0.9f, 6f), new Vector3(0.25f, 1.8f, 5f), p.Partition);
 
             Vector3 cabinet = new Vector3(1.1f, 2f, 0.55f);
-            Box("CabinetA", cover, new Vector3(-18.8f, 1f, 12f), cabinet, p.Cabinet);
+            GameObject filingCabinet = Box("CabinetA", cover, new Vector3(-18.8f, 1f, 12f), cabinet, p.Cabinet);
+            MakeStation(filingCabinet, StationKind.Cabinet, "Aktenschrank", new Vector3(0f, 0.2f, 0f));
             Box("CabinetB", cover, new Vector3(-18.8f, 1f, -12f), cabinet, p.Cabinet);
             Box("CabinetC", cover, new Vector3(6.5f, 1f, 12f), cabinet, p.Cabinet);
             Box("CabinetD", cover, new Vector3(6.5f, 1f, -12f), cabinet, p.Cabinet);
@@ -361,8 +362,21 @@ namespace ProjectBootstrap
             anchor.SetParent(desk, false);
             anchor.localPosition = new Vector3(0f, 0f, 1.35f);
 
+            // Seated position is the chair, turned to face the monitor.
+            var sit = new GameObject("SitAnchor").transform;
+            sit.SetParent(desk, false);
+            sit.localPosition = new Vector3(0f, 0f, 0.62f);
+            sit.localRotation = Quaternion.Euler(0f, 180f, 0f);
+
+            var focus = new GameObject("Focus").transform;
+            focus.SetParent(desk, false);
+            focus.localPosition = new Vector3(0f, 1.1f, -0.2f);
+
+            var seat = desk.gameObject.AddComponent<Seat>();
+            seat.Configure(sit, 1.16f, 120f);
+
             var station = desk.gameObject.AddComponent<WorkStation>();
-            station.Configure(label, anchor);
+            station.Configure(label, anchor, focus);
         }
 
         static void BuildMeetingRoom(Transform parent, Palette p)
@@ -377,11 +391,17 @@ namespace ProjectBootstrap
             for (int i = 0; i < 3; i++)
             {
                 float x = 13.6f + i * 1.4f;
-                CreateSimpleChair(room, new Vector3(x, 0f, 5.9f), 0f, p).gameObject.AddComponent<MeetingSeat>();
-                CreateSimpleChair(room, new Vector3(x, 0f, 9.1f), 180f, p).gameObject.AddComponent<MeetingSeat>();
+                MakeMeetingSeat(CreateSimpleChair(room, new Vector3(x, 0f, 5.9f), 0f, p));
+                MakeMeetingSeat(CreateSimpleChair(room, new Vector3(x, 0f, 9.1f), 180f, p));
             }
 
             Box("Whiteboard", room, new Vector3(15f, 1.7f, 14.7f), new Vector3(4.5f, 1.4f, 0.1f), p.Wall, false);
+
+            // Where finished errands are handed in.
+            Box("DeliveryDeskTop", room, new Vector3(18.4f, 0.74f, 13f), new Vector3(1.6f, 0.08f, 0.8f), p.DeskTop);
+            Box("DeliveryDeskBody", room, new Vector3(18.4f, 0.37f, 13f), new Vector3(1.4f, 0.72f, 0.7f), p.DeskBody);
+            GameObject tray = Box("ChefAblage", room, new Vector3(18.4f, 0.82f, 13f), new Vector3(0.7f, 0.1f, 0.5f), p.Accent, false);
+            MakeStation(tray, StationKind.Delivery, "Ablage des Chefs", new Vector3(0f, 0.15f, 0f));
         }
 
         static void BuildBreakRoom(Transform parent, Palette p)
@@ -390,7 +410,8 @@ namespace ProjectBootstrap
             room.SetParent(parent, false);
 
             Box("Counter", room, new Vector3(19.2f, 0.45f, -8f), new Vector3(1.2f, 0.9f, 8f), p.Cabinet);
-            Box("CoffeeMachine", room, new Vector3(19.2f, 1.15f, -6f), new Vector3(0.6f, 0.5f, 0.55f), p.DeskBody, false);
+            GameObject coffee = Box("CoffeeMachine", room, new Vector3(19.2f, 1.15f, -6f), new Vector3(0.6f, 0.5f, 0.55f), p.DeskBody, false);
+            MakeStation(coffee, StationKind.Coffee, "Kaffeemaschine", new Vector3(0f, 0f, 0f));
 
             Box("TableA", room, new Vector3(13.5f, 0.72f, -5.5f), new Vector3(1.6f, 0.09f, 1.6f), p.DeskTop);
             Box("TableALeg", room, new Vector3(13.5f, 0.36f, -5.5f), new Vector3(0.22f, 0.72f, 0.22f), p.DeskBody, false);
@@ -417,6 +438,30 @@ namespace ProjectBootstrap
             return chair;
         }
 
+        static void MakeMeetingSeat(Transform chair)
+        {
+            var focus = new GameObject("Focus").transform;
+            focus.SetParent(chair, false);
+            focus.localPosition = new Vector3(0f, 0.7f, 0f);
+
+            var seat = chair.gameObject.AddComponent<Seat>();
+            seat.Configure(null, 1.16f, 150f);
+
+            var meetingSeat = chair.gameObject.AddComponent<MeetingSeat>();
+            meetingSeat.Configure(focus);
+        }
+
+        static JobStation MakeStation(GameObject host, StationKind kind, string label, Vector3 focusOffset)
+        {
+            var focus = new GameObject("Focus").transform;
+            focus.SetParent(host.transform, false);
+            focus.localPosition = focusOffset;
+
+            var station = host.AddComponent<JobStation>();
+            station.Configure(kind, label, focus);
+            return station;
+        }
+
         static void CreateSpawnPoints(Transform parent)
         {
             var root = new GameObject("SpawnPoints").transform;
@@ -439,7 +484,8 @@ namespace ProjectBootstrap
                 var point = new GameObject($"Spawn_{i + 1}");
                 point.transform.SetParent(root, false);
                 point.transform.localPosition = positions[i];
-                point.transform.localRotation = Quaternion.identity;
+                // Facing east down the length of the office, not into a partition.
+                point.transform.localRotation = Quaternion.Euler(0f, 90f, 0f);
                 point.AddComponent<SpawnPoint>();
             }
         }
@@ -520,6 +566,15 @@ namespace ProjectBootstrap
             root.AddComponent<PlayerController>();
 
             BuildCharacterVisual(root.transform, p.Shirt, p.Skin, p.Trousers, p.Accent);
+
+            // The first-person camera parents itself to this at runtime.
+            var head = new GameObject("Head").transform;
+            head.SetParent(root.transform, false);
+            head.localPosition = new Vector3(0f, 1.62f, 0f);
+
+            var so = new SerializedObject(root.GetComponent<PlayerController>());
+            so.FindProperty("head").objectReferenceValue = head;
+            so.ApplyModifiedPropertiesWithoutUndo();
 
             GameObject prefab = PrefabUtility.SaveAsPrefabAsset(root, $"{PrefabDir}/Player.prefab");
             Object.DestroyImmediate(root);
@@ -623,6 +678,7 @@ namespace ProjectBootstrap
             go.AddComponent<NetworkObject>();
             go.AddComponent<GameManager>();
             go.AddComponent<MeetingSystem>();
+            go.AddComponent<AssignmentSystem>();
             go.AddComponent<AudioDirector>();
             go.AddComponent<AutoStart>();
         }
@@ -760,6 +816,7 @@ namespace ProjectBootstrap
             Box("Body", printer, new Vector3(0f, 0.95f, 0f), new Vector3(0.95f, 0.35f, 0.7f), p.Rubber, false);
             Box("Tray", printer, new Vector3(0f, 0.86f, 0.42f), new Vector3(0.7f, 0.04f, 0.3f), p.Paper, false);
             Box("PaperStack", printer, new Vector3(0.62f, 0.86f, 0f), new Vector3(0.3f, 0.12f, 0.42f), p.Paper, false);
+            MakeStation(printer.gameObject, StationKind.Printer, "Drucker", new Vector3(0f, 1f, 0f));
 
             // Water cooler
             var cooler = new GameObject("WaterCooler").transform;
@@ -767,6 +824,7 @@ namespace ProjectBootstrap
             cooler.localPosition = new Vector3(-19f, 0f, -5f);
             Box("Body", cooler, new Vector3(0f, 0.55f, 0f), new Vector3(0.5f, 1.1f, 0.5f), p.Cabinet);
             Box("Bottle", cooler, new Vector3(0f, 1.4f, 0f), new Vector3(0.42f, 0.6f, 0.42f), p.Glass, false);
+            MakeStation(cooler.gameObject, StationKind.WaterCooler, "Wasserspender", new Vector3(0f, 1.2f, 0f));
 
             // Desk clutter: a mug and a paper stack per workstation row.
             float[] columns = { -16f, -10f, -4f, 2f };

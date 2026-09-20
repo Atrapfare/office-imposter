@@ -15,9 +15,9 @@ namespace OfficeImposter
 
         public static readonly List<CoworkerAI> All = new List<CoworkerAI>();
 
-        [SerializeField] float suspicionPerSecond = 3.5f;
-        [SerializeField] float annoyanceToReport = 3.2f;
-        [SerializeField] float reportSuspicionSpike = 14f;
+        [SerializeField] float suspicionPerSecond = 2.2f;
+        [SerializeField] float annoyanceToReport = 5f;
+        [SerializeField] float reportSuspicionSpike = 9f;
         [SerializeField] float workDurationMin = 12f;
         [SerializeField] float workDurationMax = 26f;
         [SerializeField] float roamDurationMax = 9f;
@@ -87,6 +87,8 @@ namespace OfficeImposter
 
         void Observe()
         {
+            if (GameManager.GraceActive) return;
+
             foreach (var player in PlayerStatus.All)
             {
                 if (player == null || player.IsCaught) continue;
@@ -98,7 +100,7 @@ namespace OfficeImposter
                     continue;
                 }
 
-                player.AddSuspicion(suspicionPerSecond * Time.deltaTime);
+                player.ReportObservation(suspicionPerSecond, SuspicionReason.ReportedByCoworker);
 
                 _annoyance.TryGetValue(player, out float value);
                 value += Time.deltaTime;
@@ -111,7 +113,7 @@ namespace OfficeImposter
         void ReportToBoss(PlayerStatus player)
         {
             _annoyance[player] = 0f;
-            player.AddSuspicion(reportSuspicionSpike);
+            player.AddSuspicion(reportSuspicionSpike, SuspicionReason.ReportedByCoworker);
 
             if (BossAI.Instance != null) BossAI.Instance.Investigate(player.transform.position);
 

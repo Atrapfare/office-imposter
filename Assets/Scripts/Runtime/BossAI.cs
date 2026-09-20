@@ -8,11 +8,13 @@ namespace OfficeImposter
     [RequireComponent(typeof(VisionCone))]
     public class BossAI : NetworkBehaviour
     {
-        public enum State { Patrolling, Investigating, AtMeeting }
+        public enum State { Patrolling, Investigating, AtMeeting, Confronting }
 
-        [SerializeField] float suspicionPerSecond = 11f;
+        [SerializeField] float suspicionPerSecond = 6.5f;
         [SerializeField] float waypointPause = 2.5f;
-        [SerializeField] float investigateDuration = 7f;
+        [SerializeField] float investigateDuration = 8f;
+        [SerializeField] float confrontRange = 3.6f;
+        [SerializeField] float hearingRange = 11f;
         [SerializeField] Transform[] waypoints;
 
         public static BossAI Instance { get; private set; }
@@ -22,11 +24,10 @@ namespace OfficeImposter
 
         NavMeshAgent _agent;
         VisionCone _vision;
+        PlayerStatus _confronting;
         int _waypointIndex;
         float _pauseTimer;
         float _stateTimer;
-        Vector3 _meetingSpot;
-        bool _hasMeetingSpot;
 
         public State CurrentState => (State)_state.Value;
 
@@ -50,23 +51,30 @@ namespace OfficeImposter
             if (Instance == this) Instance = null;
         }
 
-        // Called by coworkers who have had enough of watching someone do nothing.
         public void Investigate(Vector3 position)
         {
-            if (!IsServer || CurrentState == State.AtMeeting) return;
+            if (!IsServer || CurrentState == State.AtMeeting || CurrentState == State.Confronting) return;
 
             _state.Value = (int)State.Investigating;
             _stateTimer = investigateDuration;
             SetDestination(position);
         }
 
+        // Sprinting carries. The boss does not see through walls, but he hears through them.
+        public void HearNoise(Vector3 position, PlayerStatus source)
+        {
+            if (!IsServer || CurrentState != State.Patrolling) return;
+            if ((position - transform.position).sqrMagnitude > hearingRange * hearingRange) return;
+
+            Investigate(position);
+        }
+
         public void GoToMeeting(Vector3 position)
         {
             if (!IsServer) return;
 
+            AbortConfrontation();
             _state.Value = (int)State.AtMeeting;
-            _meetingSpot = position;
-            _hasMeetingSpot = true;
             SetDestination(position);
         }
 
@@ -74,9 +82,27 @@ namespace OfficeImposter
         {
             if (!IsServer) return;
 
-            _hasMeetingSpot = false;
             _state.Value = (int)State.Patrolling;
             MoveToNextWaypoint();
+        }
+
+        public void EndConfrontation()
+        {
+            if (!IsServer) return;
+
+            _confronting = null;
+            if (CurrentState != State.AtMeeting)
+            {
+                _state.Value = (int)State.Patrolling;
+                if (_agent.enabled) _agent.isStopped = false;
+                MoveToNextWaypoint();
+            }
+        }
+
+        void AbortConfrontation()
+        {
+            if (_confronting != null) _confronting = null;
+            if (_agent.enabled) _agent.isStopped = false;
         }
 
         void Update()
@@ -87,7 +113,9 @@ namespace OfficeImposter
             {
                 case State.Patrolling:
                     Patrol();
+                    ScanForSlackers();
                     break;
+
                 case State.Investigating:
                     _stateTimer -= Time.deltaTime;
                     if (_stateTimer <= 0f)
@@ -95,14 +123,34 @@ namespace OfficeImposter
                         _state.Value = (int)State.Patrolling;
                         MoveToNextWaypoint();
                     }
+                    ScanForSlackers();
                     break;
+
+                case State.Confronting:
+                    HoldConfrontation();
+                    break;
+
                 case State.AtMeeting:
-                    if (_hasMeetingSpot && ArrivedAtDestination()) transform.rotation = Quaternion.Slerp(
-                        transform.rotation, Quaternion.LookRotation(Vector3.left), 2f * Time.deltaTime);
+                    ScanForSlackers();
                     break;
             }
+        }
 
-            ScanForSlackers();
+        void HoldConfrontation()
+        {
+            if (_confronting == null || !_confronting.IsConfronted)
+            {
+                EndConfrontation();
+                return;
+            }
+
+            Vector3 toPlayer = _confronting.transform.position - transform.position;
+            toPlayer.y = 0f;
+            if (toPlayer.sqrMagnitude > 0.01f)
+            {
+                transform.rotation = Quaternion.Slerp(transform.rotation,
+                    Quaternion.LookRotation(toPlayer), 6f * Time.deltaTime);
+            }
         }
 
         void Patrol()
@@ -139,15 +187,34 @@ namespace OfficeImposter
 
         void ScanForSlackers()
         {
+            if (GameManager.GraceActive) return;
+
             foreach (var player in PlayerStatus.All)
             {
-                if (player == null || player.IsCaught) continue;
+                if (player == null || player.IsCaught || player.IsConfronted) continue;
                 if (player.IsExcusedFromWork) continue;
                 if (!_vision.CanSee(player.transform)) continue;
 
-                player.AddSuspicion(suspicionPerSecond * Time.deltaTime);
+                float distance = Vector3.Distance(player.transform.position, transform.position);
+                if (distance <= confrontRange && CurrentState != State.AtMeeting)
+                {
+                    StartConfrontation(player);
+                    return;
+                }
+
+                player.ReportObservation(suspicionPerSecond, SuspicionReason.SeenByBoss);
                 player.MarkSeenByBoss();
             }
+        }
+
+        void StartConfrontation(PlayerStatus player)
+        {
+            _confronting = player;
+            _state.Value = (int)State.Confronting;
+            if (_agent.enabled) _agent.isStopped = true;
+
+            player.BeginConfrontation();
+            player.MarkSeenByBoss();
         }
     }
 }
